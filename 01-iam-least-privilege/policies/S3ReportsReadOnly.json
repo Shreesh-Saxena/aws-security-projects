@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListOnlyReportsPrefix",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::shreesh-iam-least-privilege",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "reports/*"
+        }
+      }
+    },
+    {
+      "Sid": "ReadReportsObjects",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::shreesh-iam-least-privilege/reports/*"
+    }
+  ]
+}
