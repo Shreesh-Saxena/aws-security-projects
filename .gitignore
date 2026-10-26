@@ -218,3 +218,17 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Terraform — never commit state (may contain secrets) or local provider files
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+
+# AWS / local credentials — never commit
+.aws/
+*.pem
+credentials
+*_accessKeys.csv
