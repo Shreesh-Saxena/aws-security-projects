@@ -144,6 +144,42 @@ Policy: [`policies/boundary-s3-cw-only.json`](policies/boundary-s3-cw-only.json)
 
 ---
 
+## Infrastructure as Code (CloudFormation)
+
+The whole lab above was first built by hand in the console (for the screenshots), then
+codified as a single **CloudFormation template** so it is reproducible and reviewable:
+[`cloudformation/template.yaml`](cloudformation/template.yaml).
+
+It creates all eight resources — the private bucket, the `S3ReportsReadOnly` managed
+policy, the `reports-readers` group, the `reports-auditor-role` (trust + permission),
+the `boundary-s3-cw-only` boundary, and the three users (`Alice`, `bob`, `carol`) — with
+the right attachments, group membership, inline assume-role policy and permissions
+boundary. The bucket name is a **parameter** (S3 names are globally unique), and the
+role's trust policy references `bob` while `bob`'s assume-role policy references the role
+by a built ARN, avoiding a circular dependency.
+
+Deploy and tear down:
+
+```bash
+# Create the whole stack (console: Upload template → acknowledge IAM capabilities → Submit)
+aws cloudformation deploy \
+  --stack-name project1-iam-least-privilege \
+  --template-file cloudformation/template.yaml \
+  --parameter-overrides BucketName=<globally-unique-name> \
+  --capabilities CAPABILITY_NAMED_IAM
+
+# Delete everything in one step
+aws cloudformation delete-stack --stack-name project1-iam-least-privilege
+```
+
+**The template visualized (console template designer) and a successful deploy:**
+
+![CloudFormation architecture](screenshots/9-cloudformation-architecture.png)
+![CloudFormation CREATE_COMPLETE](screenshots/10-cloudformation-create-complete.png)
+
+> One `delete-stack` removes every resource — far safer than deleting eight things by
+> hand and forgetting one.
+
 ## Key takeaways
 
 - **Deny by default** — IAM grants nothing until explicitly allowed; everything else is already denied.

@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  Project 1 - IAM least-privilege as Infrastructure as Code (CloudFormation).
+  Recreates the whole lab: a private S3 bucket, a scoped read-only policy for the
+  reports/ prefix, a reports-readers group, an assumable auditor role (trust vs
+  permission separation), a permissions boundary that caps an admin user to
+  S3/CloudWatch only, and the three test users (Alice, bob, carol).
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: >
+      Globally unique name for the reports S3 bucket. S3 bucket names are unique
+      across all AWS accounts, so this is a parameter (not hard-coded) to keep the
+      template reusable - change it if the default name is taken.
+    Default: shreesh-iam-least-privilege-cfn
+    MinLength: 3
+    MaxLength: 63
+    AllowedPattern: '[a-z0-9.-]+'
+    ConstraintDescription: Lowercase letters, numbers, dots and hyphens only.
+
+Resources:
+
+  # ---------- S3 bucket (private) ----------
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ---------- Part 1: scoped identity policy ----------
+  S3ReportsReadOnly:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: S3ReportsReadOnly
+      Description: Read-only access limited to the reports/ prefix of the reports bucket.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ListOnlyReportsPrefix
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !GetAtt ReportsBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix: reports/*
+          - Sid: ReadReportsObjects
+            Effect: Allow
+            Action: s3:GetObject
+            Resource: !Sub '${ReportsBucket.Arn}/reports/*'
+
+  ReportsReadersGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: reports-readers
+      ManagedPolicyArns:
+        - !Ref S3ReportsReadOnly
+
+  AliceUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: Alice
+      Groups:
+        - !Ref ReportsReadersGroup
+
+  # ---------- Part 2: role assumption (trust vs permission) ----------
+  BobUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: bob
+      # bob can ONLY assume the auditor role - no S3 permission of his own.
+      # The role ARN is built from a string (not a !Ref) to avoid a circular
+      # dependency with the role's trust policy, which names bob below.
+      Policies:
+        - PolicyName: assume-reports-auditor-role
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowAssumeReportsAuditorRole
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/reports-auditor-role'
+
+  ReportsAuditorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: reports-auditor-role
+      # Trust policy = WHO may assume (only bob).
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowBobToAssume
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt BobUser.Arn
+            Action: sts:AssumeRole
+      # Permission policy = WHAT it can do (read reports/).
+      ManagedPolicyArns:
+        - !Ref S3ReportsReadOnly
+
+  # ---------- Part 3: permissions boundary ----------
+  BoundaryS3CwOnly:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: boundary-s3-cw-only
+      Description: Permissions-boundary ceiling - S3 and CloudWatch only.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: MaxS3AndCloudWatchOnly
+            Effect: Allow
+            Action:
+              - s3:*
+              - cloudwatch:*
+              - logs:*
+            Resource: '*'
+
+  CarolUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: carol
+      # Full admin, but the boundary caps the effective permissions to S3/CloudWatch.
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      PermissionsBoundary: !Ref BoundaryS3CwOnly
+
+Outputs:
+  BucketName:
+    Description: The private reports bucket (upload objects under reports/).
+    Value: !Ref ReportsBucket
+  AuditorRoleArn:
+    Description: Role that bob can assume to read reports/.
+    Value: !GetAtt ReportsAuditorRole.Arn
+  BoundaryPolicyArn:
+    Description: The permissions-boundary policy.
+    Value: !Ref BoundaryS3CwOnly
