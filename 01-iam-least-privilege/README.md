@@ -1,65 +1,53 @@
 # Project 1 — IAM Least-Privilege Access to S3
 
-A hands-on demonstration of the **principle of least privilege**: an IAM user is
-granted *just enough* permission to read one folder in one S3 bucket — and nothing
-more. Every other action (listing the account's buckets, reading files outside that
-folder, uploading) is denied, and I verified each case in the AWS Console.
+A hands-on demonstration of the **principle of least privilege** on IAM principals,
+in three parts. Each part limits what an identity can do and is **verified** — proving
+the allowed path works and everything else is denied.
 
-> **Why this matters:** Over-permissive IAM policies are one of the most common causes
-> of cloud data exposure. This project shows how a tightly scoped, condition-based
-> policy limits the "blast radius" if a user's credentials are ever compromised.
+1. **Scoped identity policy** — an IAM user can read *one folder* of *one bucket*, nothing else.
+2. **Role assumption (trust policy)** — a user with no S3 access gains it only by assuming a role.
+3. **Permissions boundary** — a user with `AdministratorAccess` is still capped to S3/CloudWatch only.
+
+> **Why this matters:** Over-permissive IAM is one of the most common causes of cloud
+> data exposure. These three controls limit the "blast radius" if credentials are ever
+> compromised: a scoped policy, role separation (who-can-assume vs what-they-can-do),
+> and a hard ceiling that even an admin grant cannot exceed.
+
+> **Note:** The policy JSONs use the placeholder account id `111122223333`. Replace it
+> with your own account id to reuse them. No real credentials or access keys are in this repo.
 
 ---
 
-## Scenario
+## Part 1 — Scoped identity policy (read only `reports/`)
 
-An auditor (`Alice`) needs **read-only** access to audit reports stored under the
-`reports/` prefix of an S3 bucket. She must **not** be able to:
-
-- list all buckets in the account,
-- read files stored outside `reports/` (e.g. `secret.txt` in the bucket root),
-- upload, modify, or delete anything.
-
-## Architecture
+**Scenario:** an auditor (`Alice`) needs read-only access to reports under the
+`reports/` prefix of a bucket. She must **not** list all buckets, read files outside
+`reports/`, or write anything.
 
 ```
 IAM user: Alice
    └── member of group: reports-readers
-          └── attached policy: S3ReportsReadOnly  (customer managed)
-                 ├── s3:ListBucket   on the bucket   (ONLY when prefix = reports/*)
-                 └── s3:GetObject    on bucket/reports/*
+          └── policy: S3ReportsReadOnly  (customer managed)
+                 ├── s3:ListBucket  on the bucket  (ONLY when prefix = reports/*)
+                 └── s3:GetObject   on bucket/reports/*
 ```
 
-Permissions are attached to the **group**, not the user directly — so adding more
-auditors later means just adding them to the group.
+Permissions are attached to the **group**, not the user — adding more auditors later
+just means adding them to the group.
 
-## The policy
+Policy: [`policies/S3ReportsReadOnly.json`](policies/S3ReportsReadOnly.json). Two design
+decisions make it least-privilege:
 
-See [`policies/S3ReportsReadOnly.json`](policies/S3ReportsReadOnly.json).
-
-Two design decisions make this least-privilege:
-
-1. **`ListBucket` is gated by a condition** — `s3:prefix` must match `reports/*`.
-   Listing the bucket root (no prefix) is therefore denied.
-2. **`GetObject` is scoped to `reports/*`** — object permissions use the object ARN
-   with `/reports/*`, so files elsewhere in the bucket cannot be read.
+1. **`ListBucket` is gated by a condition** — `s3:prefix` must match `reports/*`, so
+   listing the bucket root is denied.
+2. **`GetObject` is scoped to `reports/*`** — the object ARN ends in `/reports/*`, so
+   files elsewhere in the bucket cannot be read.
 
 ```json
-"Condition": {
-  "StringLike": { "s3:prefix": "reports/*" }
-}
+"Condition": { "StringLike": { "s3:prefix": "reports/*" } }
 ```
 
-## Steps performed
-
-1. Created S3 bucket `shreesh-iam-least-privilege` (Block Public Access ON).
-2. Added two objects: `reports/hello.txt` (allowed) and `secret.txt` in the root (off-limits).
-3. Created the customer-managed policy `S3ReportsReadOnly` (above).
-4. Created group `reports-readers` and attached the policy.
-5. Created IAM user `Alice` with console access, added to the group.
-6. Signed in as `Alice` in a separate (incognito) session and tested each case.
-
-## Verification
+### Verification
 
 | # | Action attempted | Expected | Result |
 |---|------------------|----------|--------|
@@ -69,9 +57,7 @@ Two design decisions make this least-privilege:
 | 4 | Upload `one.txt` to `reports/` | Deny | ❌ Access denied (no write permission) |
 | 5 | Open `secret.txt` (outside `reports/`) | Deny | ❌ No permission to get object |
 
-Screenshots for each case are in [`screenshots/`](screenshots/).
-
-**Allowed — `reports/hello.txt` is listed and downloads successfully:**
+**Allowed — `reports/hello.txt` is listed and downloads:**
 
 ![reports folder visible](screenshots/1a-reports-folder-visible.png)
 ![hello.txt downloaded](screenshots/1b-hello-txt-downloaded.png)
@@ -81,26 +67,97 @@ Screenshots for each case are in [`screenshots/`](screenshots/).
 ![list all buckets denied](screenshots/2-list-all-buckets-denied.png)
 ![bucket root list denied](screenshots/3-bucket-root-list-denied.png)
 
-**Denied — uploading to `reports/`, and reading `secret.txt` outside `reports/`:**
+**Denied — uploading to `reports/`, and reading `secret.txt`:**
 
 ![upload access denied](screenshots/4-upload-access-denied.png)
 ![secret.txt denied](screenshots/5-secret-txt-denied.png)
 
+---
+
+## Part 2 — Role assumption (trust policy vs permission policy)
+
+**Scenario:** a user (`bob`) has **no S3 access at all**. He should be able to read the
+reports **only** by assuming a dedicated role — demonstrating the difference between a
+**trust policy** (*who may assume the role*) and a **permission policy** (*what the role
+can do*).
+
+```
+IAM user: bob
+   └── inline policy: sts:AssumeRole on reports-auditor-role   (and nothing else)
+
+IAM role: reports-auditor-role
+   ├── trust policy:      Principal = bob            → who may assume   (WHO)
+   └── permission policy: S3ReportsReadOnly          → read reports/*   (WHAT)
+```
+
+Policies:
+- Role trust policy — [`policies/reports-auditor-role-trust-policy.json`](policies/reports-auditor-role-trust-policy.json)
+- `bob`'s inline policy — [`policies/bob-assume-role.json`](policies/bob-assume-role.json)
+- Role permission policy — reuses [`policies/S3ReportsReadOnly.json`](policies/S3ReportsReadOnly.json)
+
+### Verification
+
+| # | Action attempted | Expected | Result |
+|---|------------------|----------|--------|
+| 1 | As `bob` directly, access S3 | Deny | ❌ No permission to list buckets |
+| 2 | `bob` switches into `reports-auditor-role`, reads `reports/hello.txt` | Allow | ✅ File listed and readable |
+
+**`bob` directly has no S3 access:**
+
+![bob direct S3 denied](screenshots/6-bob-direct-s3-denied.png)
+
+**After assuming `reports-auditor-role`, `reports/hello.txt` is readable:**
+
+![assumed role reports allowed](screenshots/7-assumed-role-reports-allowed.png)
+
+The permission came entirely from the role — `bob` holds none of it directly.
+*(Hardening note: a real cross-account trust policy would also require `sts:ExternalId`
+and/or `aws:MultiFactorAuthPresent`; those are tested via the CLI `aws sts assume-role`.)*
+
+---
+
+## Part 3 — Permissions boundary (a ceiling an admin grant can't cross)
+
+**Scenario:** a user (`carol`) is given the full `AdministratorAccess` managed policy,
+but a **permissions boundary** caps her effective permissions to S3 and CloudWatch only.
+The boundary does not *grant* anything — effective permission = identity policy ∩ boundary.
+
+```
+IAM user: carol
+   ├── permission policy:  AdministratorAccess       → would allow everything
+   └── permissions boundary: boundary-s3-cw-only     → max = s3 / cloudwatch / logs only
+   ⇒ effective = AdministratorAccess ∩ boundary = S3 / CloudWatch only
+```
+
+Policy: [`policies/boundary-s3-cw-only.json`](policies/boundary-s3-cw-only.json).
+
+### Verification (IAM Policy Simulator)
+
+| # | Action simulated | Expected | Result |
+|---|------------------|----------|--------|
+| 1 | `ec2:DescribeInstances` | Deny | ❌ **Implicitly denied by a permissions boundary** |
+| 2 | `s3:*` (e.g. `DescribeJob`, `PutObjectRetention`) | Allow | ✅ Explicitly allowed |
+
+**Despite `AdministratorAccess`, EC2 is denied by the boundary while S3 is allowed:**
+
+![permissions boundary EC2 denied](screenshots/8-permissions-boundary-ec2-denied.png)
+
+---
+
 ## Key takeaways
 
-- **Deny by default.** IAM grants nothing until you explicitly allow it; everything
-  not allowed is already denied.
-- **Conditions shrink scope further.** The `s3:prefix` condition means even a granted
-  `ListBucket` only works for the intended folder.
-- **Object-level ARNs matter.** `GetObject` on `bucket/reports/*` does not extend to
-  `bucket/secret.txt`.
+- **Deny by default** — IAM grants nothing until explicitly allowed; everything else is already denied.
+- **Conditions shrink scope** — an `s3:prefix` condition limits even a granted `ListBucket` to one folder.
+- **Object-level ARNs matter** — `GetObject` on `bucket/reports/*` does not reach `bucket/secret.txt`.
+- **Trust policy ≠ permission policy** — one controls *who can assume* a role, the other *what it can do*.
+- **A permissions boundary is a ceiling, not a grant** — it caps the maximum even when `AdministratorAccess` is attached.
 - **Attach permissions to groups**, not individual users, for maintainability.
 
 ## Cleanup
 
-To avoid lingering resources, after documenting the project I deleted the IAM user,
-the group, the policy, and the S3 bucket. No credentials or access keys are stored in
-this repository.
+After documenting the project, delete the test users (`Alice`, `bob`, `carol`), the
+group, the role, the customer-managed policies, and the S3 bucket. No credentials or
+access keys are stored in this repository.
 
 ---
 
