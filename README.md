@@ -16,7 +16,7 @@ Each project is self-contained and includes:
 | # | Project | Focus area | IaC | Status |
 |---|---------|------------|-----|--------|
 | 01 | [IAM Least-Privilege Access to S3](01-iam-least-privilege) | Identity & Access | CloudFormation | ✅ Core complete |
-| 02 | Secure VPC (public/private subnets, SGs, NACLs, endpoints) | Network | CloudFormation | ⬜ Planned |
+| 02 | [Secure VPC (three-tier: web / app / db)](02-secure-vpc) | Network | CloudFormation | ✅ Core complete |
 | 03 | GuardDuty → EventBridge → Lambda auto-response | Detection & Response | Terraform | ⬜ Planned |
 | 04 | S3 Data Protection (Block Public Access, SSE-KMS, bucket policy) | Data Protection | Terraform | ⬜ Planned |
 | 05 | Multi-account guardrails (SCP / RCP, AWS Organizations) | Governance | Terraform | ⬜ Planned |

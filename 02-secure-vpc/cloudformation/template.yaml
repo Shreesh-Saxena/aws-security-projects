@@ -1,0 +1,229 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  Project 2 - Secure VPC as Infrastructure as Code (CloudFormation).
+  A three-tier network: one public subnet (web) and two private subnets (app, db)
+  across two Availability Zones, an Internet Gateway, a NAT Gateway for outbound-only
+  private access, layered security groups chained web -> app -> db, a web EC2 (serves
+  a page), an app EC2 and a private MySQL RDS instance. Demonstrates network
+  least-privilege: the internet can reach only the web tier; the app and db tiers are
+  isolated (outbound via NAT only).
+
+Parameters:
+  SshAllowedCidr:
+    Type: String
+    Description: Your public IP in CIDR notation, allowed to SSH to the web tier (e.g. 1.2.3.4/32).
+    Default: 0.0.0.0/0
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+  DBMasterPassword:
+    Type: String
+    Description: Master password for the RDS MySQL instance (8+ chars, avoid / " @).
+    NoEcho: true
+    MinLength: 8
+  LatestAmazonLinux2023Ami:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Description: Latest Amazon Linux 2023 AMI (resolved automatically; do not change).
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+
+  # ---------- VPC ----------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: secure-vpc }]
+
+  # ---------- Subnets (1 public + 2 private across 2 AZs) ----------
+  PublicSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: public-subnet-1a }]
+
+  PrivateSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags: [{ Key: Name, Value: private-subnet-1a }]
+
+  PrivateSubnet1b:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags: [{ Key: Name, Value: private-subnet-1b }]
+
+  # ---------- Internet Gateway ----------
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: secure-vpc-igw }]
+
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # ---------- NAT Gateway (outbound-only internet for private subnets) ----------
+  NatEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: IGWAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1a
+      Tags: [{ Key: Name, Value: secure-vpc-nat }]
+
+  # ---------- Route tables ----------
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags: [{ Key: Name, Value: public-rt }]
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1a
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags: [{ Key: Name, Value: private-rt }]
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1aAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1a
+
+  PrivateSubnet1bAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1b
+
+  # ---------- Security groups: three-tier chain web -> app -> db ----------
+  WebSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: web-sg
+      GroupDescription: Web tier - HTTP/HTTPS from the internet, SSH from your IP
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80,  ToPort: 80,  CidrIp: 0.0.0.0/0 }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
+        - { IpProtocol: tcp, FromPort: 22,  ToPort: 22,  CidrIp: !Ref SshAllowedCidr }
+      Tags: [{ Key: Name, Value: web-sg }]
+
+  AppSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: app-sg
+      GroupDescription: App tier - only from web-sg
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !Ref WebSG }
+        - { IpProtocol: tcp, FromPort: 22,   ToPort: 22,   SourceSecurityGroupId: !Ref WebSG }
+      Tags: [{ Key: Name, Value: app-sg }]
+
+  DbSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: db-sg
+      GroupDescription: DB tier - only from app-sg (MySQL 3306)
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 3306, ToPort: 3306, SourceSecurityGroupId: !Ref AppSG }
+      Tags: [{ Key: Name, Value: db-sg }]
+
+  # ---------- EC2 instances (proof targets) ----------
+  WebInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmazonLinux2023Ami
+      SubnetId: !Ref PublicSubnet1a
+      SecurityGroupIds: [ !Ref WebSG ]
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          dnf install -y httpd
+          systemctl enable --now httpd
+          echo "<h1>Web tier - Secure VPC (Project 2)</h1><p>This EC2 is in the PUBLIC subnet, reachable from the internet.</p>" > /var/www/html/index.html
+      Tags: [{ Key: Name, Value: web-server }]
+
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmazonLinux2023Ami
+      SubnetId: !Ref PrivateSubnet1a
+      SecurityGroupIds: [ !Ref AppSG ]
+      Tags: [{ Key: Name, Value: app-server }]
+
+  # ---------- RDS (private MySQL) ----------
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets for RDS (2 AZs)
+      SubnetIds: [ !Ref PrivateSubnet1a, !Ref PrivateSubnet1b ]
+      Tags: [{ Key: Name, Value: secure-vpc-db-subnet-group }]
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBInstanceIdentifier: secure-vpc-db
+      Engine: mysql
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: '20'
+      StorageType: gp2
+      MasterUsername: admin
+      MasterUserPassword: !Ref DBMasterPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups: [ !Ref DbSG ]
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+
+Outputs:
+  WebServerPublicIP:
+    Description: Public IP of the web server (open http://<ip>/ to verify).
+    Value: !GetAtt WebInstance.PublicIp
+  VPCId:
+    Value: !Ref VPC
+  RDSEndpoint:
+    Description: RDS endpoint - private, reachable only from the app tier.
+    Value: !GetAtt RDSInstance.Endpoint.Address
