@@ -15,11 +15,6 @@ Parameters:
     Description: Your public IP in CIDR notation, allowed to SSH to the web tier (e.g. 1.2.3.4/32).
     Default: 0.0.0.0/0
     AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
-  DBMasterPassword:
-    Type: String
-    Description: Master password for the RDS MySQL instance (8+ chars, avoid / " @).
-    NoEcho: true
-    MinLength: 8
   LatestAmazonLinux2023Ami:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Description: Latest Amazon Linux 2023 AMI (resolved automatically; do not change).
@@ -211,7 +206,9 @@ Resources:
       AllocatedStorage: '20'
       StorageType: gp2
       MasterUsername: admin
-      MasterUserPassword: !Ref DBMasterPassword
+      # RDS generates and manages the master password in AWS Secrets Manager
+      # (best practice) — no password is passed as a parameter or stored in the template.
+      ManageMasterUserPassword: true
       DBSubnetGroupName: !Ref DBSubnetGroup
       VPCSecurityGroups: [ !Ref DbSG ]
       PubliclyAccessible: false

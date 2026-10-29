@@ -89,14 +89,15 @@ chain, NAT routing and the two-AZ DB subnet group are all expressed as code.
 aws cloudformation deploy \
   --stack-name project2-secure-vpc \
   --template-file cloudformation/template.yaml \
-  --parameter-overrides SshAllowedCidr=<your-ip>/32 DBMasterPassword=<password>
+  --parameter-overrides SshAllowedCidr=<your-ip>/32
 
 # Tear everything down (VPC, NAT, RDS, EC2, ...) in one step
 aws cloudformation delete-stack --stack-name project2-secure-vpc
 ```
 
-The AMI is resolved automatically via an SSM public parameter, and the DB password is a
-`NoEcho` parameter — no secrets are stored in the template.
+The AMI is resolved automatically via an SSM public parameter, and the RDS master
+password is generated and stored by **AWS Secrets Manager** (`ManageMasterUserPassword`),
+so no secret is passed as a parameter or stored in the template.
 
 ## Key takeaways
 
