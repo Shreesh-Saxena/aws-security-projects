@@ -180,6 +180,21 @@ aws cloudformation delete-stack --stack-name project1-iam-least-privilege
 > One `delete-stack` removes every resource — far safer than deleting eight things by
 > hand and forgetting one.
 
+## Security scanning (cfn-lint + Checkov)
+
+The template passes **cfn-lint** cleanly. **Checkov** findings were reviewed:
+
+**Fixed**
+- S3 bucket versioning enabled (`VersioningConfiguration: Status: Enabled`)
+
+**Kept intentionally (with reason)**
+- *S3 access logging off* — would require a separate log bucket; omitted for a
+  short-lived test bucket.
+- *IAM policy "unconstrained wildcard" checks* — these flag `boundary-s3-cw-only`, which
+  is a **permissions boundary**. Its broad `s3:*` / `cloudwatch:*` on `Resource: *` is by
+  design: a boundary caps the *maximum* permissions, never grants anything by itself, and
+  is never attached as a permission policy.
+
 ## Key takeaways
 
 - **Deny by default** — IAM grants nothing until explicitly allowed; everything else is already denied.

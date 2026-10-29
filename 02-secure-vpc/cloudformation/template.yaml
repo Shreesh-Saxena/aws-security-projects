@@ -137,9 +137,9 @@ Resources:
       GroupDescription: Web tier - HTTP/HTTPS from the internet, SSH from your IP
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - { IpProtocol: tcp, FromPort: 80,  ToPort: 80,  CidrIp: 0.0.0.0/0 }
-        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
-        - { IpProtocol: tcp, FromPort: 22,  ToPort: 22,  CidrIp: !Ref SshAllowedCidr }
+        - { IpProtocol: tcp, FromPort: 80,  ToPort: 80,  CidrIp: 0.0.0.0/0,           Description: HTTP from the internet (public web) }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0,           Description: HTTPS from the internet (public web) }
+        - { IpProtocol: tcp, FromPort: 22,  ToPort: 22,  CidrIp: !Ref SshAllowedCidr, Description: SSH from the admin IP only }
       Tags: [{ Key: Name, Value: web-sg }]
 
   AppSG:
@@ -149,8 +149,8 @@ Resources:
       GroupDescription: App tier - only from web-sg
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !Ref WebSG }
-        - { IpProtocol: tcp, FromPort: 22,   ToPort: 22,   SourceSecurityGroupId: !Ref WebSG }
+        - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !Ref WebSG, Description: App port from the web tier only }
+        - { IpProtocol: tcp, FromPort: 22,   ToPort: 22,   SourceSecurityGroupId: !Ref WebSG, Description: SSH from the web tier only }
       Tags: [{ Key: Name, Value: app-sg }]
 
   DbSG:
@@ -160,7 +160,7 @@ Resources:
       GroupDescription: DB tier - only from app-sg (MySQL 3306)
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - { IpProtocol: tcp, FromPort: 3306, ToPort: 3306, SourceSecurityGroupId: !Ref AppSG }
+        - { IpProtocol: tcp, FromPort: 3306, ToPort: 3306, SourceSecurityGroupId: !Ref AppSG, Description: MySQL from the app tier only }
       Tags: [{ Key: Name, Value: db-sg }]
 
   # ---------- EC2 instances (proof targets) ----------
@@ -205,6 +205,8 @@ Resources:
       DBInstanceClass: db.t3.micro
       AllocatedStorage: '20'
       StorageType: gp2
+      StorageEncrypted: true
+      EnableIAMDatabaseAuthentication: true
       MasterUsername: admin
       # RDS generates and manages the master password in AWS Secrets Manager
       # (best practice) — no password is passed as a parameter or stored in the template.

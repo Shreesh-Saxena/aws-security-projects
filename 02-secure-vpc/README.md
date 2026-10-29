@@ -99,6 +99,26 @@ The AMI is resolved automatically via an SSM public parameter, and the RDS maste
 password is generated and stored by **AWS Secrets Manager** (`ManageMasterUserPassword`),
 so no secret is passed as a parameter or stored in the template.
 
+## Security scanning (cfn-lint + Checkov)
+
+The template passes **cfn-lint** cleanly (correctness), and was scanned with **Checkov**
+(security). Each finding was reviewed — some fixed, some kept on purpose:
+
+**Fixed**
+- RDS encryption at rest (`StorageEncrypted: true`)
+- RDS IAM database authentication (`EnableIAMDatabaseAuthentication: true`)
+- A `Description` on every security-group rule
+
+**Kept intentionally (with reason)**
+- *HTTP 80 open to the internet* — this is a public web server; that rule is the whole point.
+- *SSH 22 open* — only because the `SshAllowedCidr` parameter defaults to `0.0.0.0/0`;
+  deploying with `SshAllowedCidr=<your-ip>/32` restricts it and clears the finding.
+- *RDS Multi-AZ and enhanced monitoring off* — deliberately disabled to keep this a
+  cost-controlled lab; both should be enabled for production.
+
+> The point isn't a perfect score — it's reviewing every finding and making a deliberate
+> decision, which is what a security engineer actually does.
+
 ## Key takeaways
 
 - **Public vs private = routing, not a label.** A subnet is "public" because its route
