@@ -16,6 +16,8 @@ the allowed path works and everything else is denied.
 > **Note:** The policy JSONs use the placeholder account id `111122223333`. Replace it
 > with your own account id to reuse them. No real credentials or access keys are in this repo.
 
+**Step‑by‑step build runbook:** [`BUILD.md`](BUILD.md)
+
 ---
 
 ## Part 1 — Scoped identity policy (read only `reports/`)

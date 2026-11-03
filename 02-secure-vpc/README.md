@@ -10,6 +10,8 @@ assumed.
 > groups + NACLs) that keeps the database unreachable from the internet by design, and
 > proves it.
 
+**Step‑by‑step build runbook:** [`BUILD.md`](BUILD.md)
+
 ---
 
 ## Architecture

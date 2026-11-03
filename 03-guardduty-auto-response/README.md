@@ -7,6 +7,8 @@
 
 **Region:** us-east-1 · **Account:** `111122223333` (redacted) · **IaC:** Terraform (see [`terraform/`](terraform/))
 
+**Step‑by‑step build runbook:** [`BUILD.md`](BUILD.md)
+
 ---
 
 ## The story
