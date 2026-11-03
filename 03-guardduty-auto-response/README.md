@@ -135,6 +135,7 @@ The two SNS alerts below tell the story — the live run (snapshot throttled) an
 
 - **Severity filtering** in the EventBridge pattern (only isolate medium/high findings).
 - **AWS Security Hub** (ASFF) as the single pane; GuardDuty + Inspector + Macie feed it.
+- **Amazon Detective** for the investigation phase — after containment, its behaviour graph (CloudTrail + VPC flow + EKS logs) shows what the instance talked to and how far the compromise spread.
 - **Step Functions** with a **human‑in‑the‑loop** approval before isolating production.
 - **Separate forensics account** (cross‑account snapshot copy) for chain of custody.
 - **GuardDuty delegated admin** across an AWS Organization (multi‑account).
