@@ -30,6 +30,11 @@ your own.
 3. Create a key pair (`guardduty-test-key`, RSA, .pem) — download it.
 4. Network: default VPC, **Auto‑assign public IP = Enable**. Create security group `victim-sg`
    with inbound **SSH 22 from My IP**.
+   > **Heads‑up (we hit this):** EC2 Instance Connect (the browser "Connect") comes from
+   > **AWS's** servers, not your IP — so "SSH from My IP" alone makes it fail with *"Failed to
+   > connect / unable to connect"*. If you plan to connect that way (Step 8), also add a second
+   > inbound rule now: **SSH 22 from `18.206.107.24/29`** (the us‑east‑1 EC2 Instance Connect
+   > range). You can add it later in Step 8 instead, but adding it here avoids the error.
 5. Storage default (8 GiB). **Launch instance**. Wait for **Running** + 3/3 checks.
 6. Note the **Instance ID** (e.g. `i-0cbcada1e4c53fb7b`) and VPC id.
 
